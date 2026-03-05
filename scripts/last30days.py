@@ -129,6 +129,11 @@ def _install_global_timeout(timeout_seconds: int):
         timer.start()
 
 from lib import (
+    apify_client,
+    apify_instagram,
+    apify_reddit,
+    apify_tiktok,
+    apify_x,
     bird_x,
     dates,
     dedupe,
@@ -170,8 +175,12 @@ def _search_reddit(
     to_date: str,
     depth: str,
     mock: bool,
+    reddit_source: str = "openai",
 ) -> tuple:
-    """Search Reddit via OpenAI (runs in thread).
+    """Search Reddit via OpenAI or Apify (runs in thread).
+
+    Args:
+        reddit_source: 'openai' or 'apify' - which backend to use
 
     Returns:
         Tuple of (reddit_items, raw_openai, error)
@@ -181,24 +190,38 @@ def _search_reddit(
 
     if mock:
         raw_openai = load_fixture("openai_sample.json")
-    else:
-        try:
-            raw_openai = openai_reddit.search_reddit(
-                config["OPENAI_API_KEY"],
-                selected_models["openai"],
-                topic,
-                from_date,
-                to_date,
-                depth=depth,
-                auth_source=config.get("OPENAI_AUTH_SOURCE", "api_key"),
-                account_id=config.get("OPENAI_CHATGPT_ACCOUNT_ID"),
-            )
-        except http.HTTPError as e:
-            raw_openai = {"error": str(e)}
-            reddit_error = f"API error: {e}"
-        except Exception as e:
-            raw_openai = {"error": str(e)}
-            reddit_error = f"{type(e).__name__}: {e}"
+        reddit_items = openai_reddit.parse_reddit_response(raw_openai or {})
+        return reddit_items, raw_openai, reddit_error
+
+    # Use Apify backend
+    if reddit_source == "apify":
+        apify_token = config.get("APIFY_API_TOKEN", "")
+        response = apify_reddit.search_reddit(
+            topic, from_date, to_date, depth=depth, token=apify_token,
+        )
+        reddit_items = apify_reddit.parse_reddit_response(response)
+        if response.get("error"):
+            reddit_error = response["error"]
+        return reddit_items, response, reddit_error
+
+    # Use OpenAI (original behavior)
+    try:
+        raw_openai = openai_reddit.search_reddit(
+            config["OPENAI_API_KEY"],
+            selected_models["openai"],
+            topic,
+            from_date,
+            to_date,
+            depth=depth,
+            auth_source=config.get("OPENAI_AUTH_SOURCE", "api_key"),
+            account_id=config.get("OPENAI_CHATGPT_ACCOUNT_ID"),
+        )
+    except http.HTTPError as e:
+        raw_openai = {"error": str(e)}
+        reddit_error = f"API error: {e}"
+    except Exception as e:
+        raw_openai = {"error": str(e)}
+        reddit_error = f"{type(e).__name__}: {e}"
 
     # Parse response
     reddit_items = openai_reddit.parse_reddit_response(raw_openai or {})
@@ -258,10 +281,10 @@ def _search_x(
     mock: bool,
     x_source: str = "xai",
 ) -> tuple:
-    """Search X via Bird CLI or xAI (runs in thread).
+    """Search X via Bird CLI, xAI, or Apify (runs in thread).
 
     Args:
-        x_source: 'bird' or 'xai' - which backend to use
+        x_source: 'bird', 'xai', or 'apify' - which backend to use
 
     Returns:
         Tuple of (x_items, raw_response, error)
@@ -294,6 +317,17 @@ def _search_x(
             x_error = raw_response["error"]
 
         return x_items, raw_response, x_error
+
+    # Use Apify if specified
+    if x_source == "apify":
+        apify_token = config.get("APIFY_API_TOKEN", "")
+        response = apify_x.search_x(
+            topic, from_date, to_date, depth=depth, token=apify_token,
+        )
+        x_items = apify_x.parse_x_response(response)
+        if response.get("error"):
+            x_error = response["error"]
+        return x_items, response, x_error
 
     # Use xAI (original behavior)
     try:
@@ -351,8 +385,12 @@ def _search_tiktok(
     to_date: str,
     depth: str,
     token: str,
+    tiktok_source: str = "scrapecreators",
 ) -> tuple:
-    """Search TikTok via ScrapeCreators (runs in thread).
+    """Search TikTok via ScrapeCreators or Apify (runs in thread).
+
+    Args:
+        tiktok_source: 'scrapecreators' or 'apify'
 
     Returns:
         Tuple of (tiktok_items, tiktok_error)
@@ -360,13 +398,18 @@ def _search_tiktok(
     tiktok_error = None
 
     try:
-        response = tiktok.search_and_enrich(
-            topic, from_date, to_date, depth=depth, token=token,
-        )
+        if tiktok_source == "apify":
+            response = apify_tiktok.search_and_enrich(
+                topic, from_date, to_date, depth=depth, token=token,
+            )
+            tiktok_items = apify_tiktok.parse_tiktok_response(response)
+        else:
+            response = tiktok.search_and_enrich(
+                topic, from_date, to_date, depth=depth, token=token,
+            )
+            tiktok_items = tiktok.parse_tiktok_response(response)
     except Exception as e:
         return [], f"{type(e).__name__}: {e}"
-
-    tiktok_items = tiktok.parse_tiktok_response(response)
 
     if response.get("error"):
         tiktok_error = response["error"]
@@ -380,8 +423,12 @@ def _search_instagram(
     to_date: str,
     depth: str,
     token: str,
+    instagram_source: str = "scrapecreators",
 ) -> tuple:
-    """Search Instagram via ScrapeCreators (runs in thread).
+    """Search Instagram via ScrapeCreators or Apify (runs in thread).
+
+    Args:
+        instagram_source: 'scrapecreators' or 'apify'
 
     Returns:
         Tuple of (instagram_items, instagram_error)
@@ -389,13 +436,18 @@ def _search_instagram(
     instagram_error = None
 
     try:
-        response = instagram.search_and_enrich(
-            topic, from_date, to_date, depth=depth, token=token,
-        )
+        if instagram_source == "apify":
+            response = apify_instagram.search_and_enrich(
+                topic, from_date, to_date, depth=depth, token=token,
+            )
+            instagram_items = apify_instagram.parse_instagram_response(response)
+        else:
+            response = instagram.search_and_enrich(
+                topic, from_date, to_date, depth=depth, token=token,
+            )
+            instagram_items = instagram.parse_instagram_response(response)
     except Exception as e:
         return [], f"{type(e).__name__}: {e}"
-
-    instagram_items = instagram.parse_instagram_response(response)
 
     if response.get("error"):
         instagram_error = response["error"]
@@ -692,6 +744,9 @@ def run_research(
     mock: bool = False,
     progress: ui.ProgressDisplay = None,
     x_source: str = "xai",
+    reddit_source: str = "openai",
+    tiktok_source: str = "scrapecreators",
+    instagram_source: str = "scrapecreators",
     run_youtube: bool = False,
     run_tiktok: bool = False,
     run_instagram: bool = False,
@@ -782,7 +837,7 @@ def run_research(
             if progress:
                 progress.start_tiktok()
             try:
-                tiktok_items, tiktok_error = _search_tiktok(topic, from_date, to_date, depth, env.get_tiktok_token(config))
+                tiktok_items, tiktok_error = _search_tiktok(topic, from_date, to_date, depth, env.get_tiktok_token(config), tiktok_source)
                 if tiktok_error and progress:
                     progress.show_error(f"TikTok error: {tiktok_error}")
             except Exception as e:
@@ -796,7 +851,7 @@ def run_research(
                 progress.start_instagram()
             try:
                 ig_timeout = timeouts.get("instagram_future", future_timeout)
-                instagram_items, instagram_error = _search_instagram(topic, from_date, to_date, depth, env.get_instagram_token(config))
+                instagram_items, instagram_error = _search_instagram(topic, from_date, to_date, depth, env.get_instagram_token(config), instagram_source)
                 if instagram_error and progress:
                     progress.show_error(f"Instagram error: {instagram_error}")
             except Exception as e:
@@ -831,7 +886,7 @@ def run_research(
                 progress.start_reddit()
             reddit_future = executor.submit(
                 _search_reddit, topic, config, selected_models,
-                from_date, to_date, depth, mock
+                from_date, to_date, depth, mock, reddit_source
             )
 
         if do_x:
@@ -854,7 +909,7 @@ def run_research(
                 progress.start_tiktok()
             tiktok_future = executor.submit(
                 _search_tiktok, topic, from_date, to_date, depth,
-                env.get_tiktok_token(config),
+                env.get_tiktok_token(config), tiktok_source,
             )
 
         if run_instagram:
@@ -862,7 +917,7 @@ def run_research(
                 progress.start_instagram()
             instagram_future = executor.submit(
                 _search_instagram, topic, from_date, to_date, depth,
-                env.get_instagram_token(config),
+                env.get_instagram_token(config), instagram_source,
             )
 
         if do_hackernews:
@@ -1243,16 +1298,21 @@ def main():
 
     # Auto-detect Bird (no prompts - just use it if available)
     x_source_status = env.get_x_source_status(config)
-    x_source = x_source_status["source"]  # 'bird', 'xai', or None
+    x_source = x_source_status["source"]  # 'bird', 'xai', 'apify', or None
+
+    # Auto-detect Reddit source (OpenAI or Apify)
+    reddit_source = env.get_reddit_source(config) or "openai"
 
     # Auto-detect yt-dlp for YouTube search
     has_ytdlp = env.is_ytdlp_available()
 
-    # Auto-detect ScrapeCreators/Apify for TikTok
+    # Auto-detect TikTok source (ScrapeCreators or Apify)
     has_tiktok = env.is_tiktok_available(config)
+    tiktok_source_backend = env.get_tiktok_source(config) or "scrapecreators"
 
-    # Auto-detect ScrapeCreators for Instagram
+    # Auto-detect Instagram source (ScrapeCreators or Apify)
     has_instagram = env.is_instagram_available(config)
+    instagram_source_backend = env.get_instagram_source(config) or "scrapecreators"
 
     # --diagnose: show source availability and exit
     if args.diagnose:
@@ -1260,7 +1320,11 @@ def main():
         diag = {
             "openai": bool(config.get("OPENAI_API_KEY")),
             "xai": bool(config.get("XAI_API_KEY")),
+            "apify": bool(config.get("APIFY_API_TOKEN")),
             "x_source": x_source_status["source"],
+            "reddit_source": reddit_source,
+            "tiktok_source": tiktok_source_backend,
+            "instagram_source": instagram_source_backend,
             "bird_installed": x_source_status["bird_installed"],
             "bird_authenticated": x_source_status["bird_authenticated"],
             "bird_username": x_source_status.get("bird_username"),
@@ -1416,6 +1480,9 @@ def main():
         args.mock,
         progress,
         x_source=x_source or "xai",
+        reddit_source=reddit_source,
+        tiktok_source=tiktok_source_backend,
+        instagram_source=instagram_source_backend,
         run_youtube=search_run_youtube,
         run_tiktok=search_run_tiktok,
         run_instagram=search_run_instagram,
@@ -1541,21 +1608,21 @@ def main():
 
     # Build source info for status footer
     source_info = {}
-    if not bool(config.get("OPENAI_API_KEY")):
-        source_info["reddit_skip_reason"] = "No OPENAI_API_KEY (add to ~/.config/last30days/.env)"
+    if not bool(config.get("OPENAI_API_KEY")) and not bool(config.get("APIFY_API_TOKEN")):
+        source_info["reddit_skip_reason"] = "No OPENAI_API_KEY or APIFY_API_TOKEN (add to ~/.config/last30days/.env)"
     if not x_source:
         if x_source_status["bird_installed"]:
             source_info["x_skip_reason"] = "Bird installed but not authenticated — log into x.com in browser"
         else:
-            source_info["x_skip_reason"] = "No Bird CLI or XAI_API_KEY (Node.js 22+ needed for Bird)"
+            source_info["x_skip_reason"] = "No Bird CLI, XAI_API_KEY, or APIFY_API_TOKEN"
     if not has_ytdlp:
         source_info["youtube_skip_reason"] = "yt-dlp not installed — fix: brew install yt-dlp"
     elif has_ytdlp and not report.youtube:
         source_info["youtube_skip_reason"] = "0 results (query may be too specific)"
     if not has_tiktok:
-        source_info["tiktok_skip_reason"] = "No SCRAPECREATORS_API_KEY - sign up at scrapecreators.com (100 free credits)"
+        source_info["tiktok_skip_reason"] = "No SCRAPECREATORS_API_KEY or APIFY_API_TOKEN"
     if not has_instagram:
-        source_info["instagram_skip_reason"] = "No SCRAPECREATORS_API_KEY - sign up at scrapecreators.com (100 free credits)"
+        source_info["instagram_skip_reason"] = "No SCRAPECREATORS_API_KEY or APIFY_API_TOKEN"
     if not web_source:
         source_info["web_skip_reason"] = "assistant will use WebSearch (add BRAVE_API_KEY for native search)"
 

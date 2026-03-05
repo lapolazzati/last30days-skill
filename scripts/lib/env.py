@@ -227,13 +227,18 @@ def get_available_sources(config: Dict[str, Any]) -> str:
     """
     has_openai = bool(config.get('OPENAI_API_KEY')) and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK
     has_xai = bool(config.get('XAI_API_KEY'))
+    has_apify = bool(config.get('APIFY_API_TOKEN'))
     has_web = has_web_search_keys(config)
 
-    if has_openai and has_xai:
+    # Apify can cover both Reddit and X
+    has_reddit = has_openai or has_apify
+    has_x = has_xai or has_apify
+
+    if has_reddit and has_x:
         return 'all' if has_web else 'both'
-    elif has_openai:
+    elif has_reddit:
         return 'reddit-web' if has_web else 'reddit'
-    elif has_xai:
+    elif has_x:
         return 'x-web' if has_web else 'x'
     elif has_web:
         return 'web'
@@ -263,25 +268,28 @@ def get_web_search_source(config: Dict[str, Any]) -> Optional[str]:
 
 
 def get_missing_keys(config: Dict[str, Any]) -> str:
-    """Determine which sources are missing (accounting for Bird).
+    """Determine which sources are missing (accounting for Bird and Apify).
 
     Returns: 'all', 'both', 'reddit', 'x', 'web', or 'none'
     """
     has_openai = bool(config.get('OPENAI_API_KEY')) and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK
     has_xai = bool(config.get('XAI_API_KEY'))
+    has_apify = bool(config.get('APIFY_API_TOKEN'))
     has_web = has_web_search_keys(config)
 
     # Check if Bird provides X access (import here to avoid circular dependency)
     from . import bird_x
     has_bird = bird_x.is_bird_installed() and bird_x.is_bird_authenticated()
 
-    has_x = has_xai or has_bird
+    # Apify covers Reddit and X
+    has_reddit = has_openai or has_apify
+    has_x = has_xai or has_bird or has_apify
 
-    if has_openai and has_x and has_web:
+    if has_reddit and has_x and has_web:
         return 'none'
-    elif has_openai and has_x:
+    elif has_reddit and has_x:
         return 'web'  # Missing web search keys
-    elif has_openai:
+    elif has_reddit:
         return 'x'  # Missing X source (and possibly web)
     elif has_x:
         return 'reddit'  # Missing OpenAI key (and possibly web)
@@ -360,7 +368,7 @@ def validate_sources(requested: str, available: str, include_web: bool = False) 
 def get_x_source(config: Dict[str, Any]) -> Optional[str]:
     """Determine the best available X/Twitter source.
 
-    Priority: Bird (free) → xAI (paid API)
+    Priority: Bird (free) → xAI (paid API) → Apify
 
     Args:
         config: Configuration dict from get_config()
@@ -368,6 +376,7 @@ def get_x_source(config: Dict[str, Any]) -> Optional[str]:
     Returns:
         'bird' if Bird is installed and authenticated,
         'xai' if XAI_API_KEY is configured,
+        'apify' if APIFY_API_TOKEN is configured,
         None if no X source available.
     """
     # Import here to avoid circular dependency
@@ -383,6 +392,65 @@ def get_x_source(config: Dict[str, Any]) -> Optional[str]:
     if config.get('XAI_API_KEY'):
         return 'xai'
 
+    # Fall back to Apify
+    if config.get('APIFY_API_TOKEN'):
+        return 'apify'
+
+    return None
+
+
+def get_reddit_source(config: Dict[str, Any]) -> Optional[str]:
+    """Determine the best available Reddit source.
+
+    Priority: OpenAI (established) → Apify
+
+    Args:
+        config: Configuration dict from get_config()
+
+    Returns:
+        'openai' if OPENAI_API_KEY is configured,
+        'apify' if APIFY_API_TOKEN is configured,
+        None if no Reddit source available.
+    """
+    has_openai = bool(config.get('OPENAI_API_KEY')) and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK
+    if has_openai:
+        return 'openai'
+    if config.get('APIFY_API_TOKEN'):
+        return 'apify'
+    return None
+
+
+def get_tiktok_source(config: Dict[str, Any]) -> Optional[str]:
+    """Determine the best available TikTok source.
+
+    Priority: ScrapeCreators → Apify
+
+    Returns:
+        'scrapecreators' if SCRAPECREATORS_API_KEY is configured,
+        'apify' if APIFY_API_TOKEN is configured,
+        None if no TikTok source available.
+    """
+    if config.get('SCRAPECREATORS_API_KEY'):
+        return 'scrapecreators'
+    if config.get('APIFY_API_TOKEN'):
+        return 'apify'
+    return None
+
+
+def get_instagram_source(config: Dict[str, Any]) -> Optional[str]:
+    """Determine the best available Instagram source.
+
+    Priority: ScrapeCreators → Apify
+
+    Returns:
+        'scrapecreators' if SCRAPECREATORS_API_KEY is configured,
+        'apify' if APIFY_API_TOKEN is configured,
+        None if no Instagram source available.
+    """
+    if config.get('SCRAPECREATORS_API_KEY'):
+        return 'scrapecreators'
+    if config.get('APIFY_API_TOKEN'):
+        return 'apify'
     return None
 
 
@@ -422,17 +490,16 @@ def get_tiktok_token(config: Dict[str, Any]) -> str:
 
 
 def is_instagram_available(config: Dict[str, Any]) -> bool:
-    """Check if Instagram source is available (ScrapeCreators).
+    """Check if Instagram source is available (ScrapeCreators or Apify).
 
-    Returns True if SCRAPECREATORS_API_KEY is set.
-    Instagram uses the same key as TikTok.
+    Returns True if SCRAPECREATORS_API_KEY or APIFY_API_TOKEN is set.
     """
-    return bool(config.get('SCRAPECREATORS_API_KEY'))
+    return bool(config.get('SCRAPECREATORS_API_KEY') or config.get('APIFY_API_TOKEN'))
 
 
 def get_instagram_token(config: Dict[str, Any]) -> str:
-    """Get Instagram API token (same ScrapeCreators key as TikTok)."""
-    return config.get('SCRAPECREATORS_API_KEY') or ''
+    """Get Instagram API token, preferring ScrapeCreators over Apify."""
+    return config.get('SCRAPECREATORS_API_KEY') or config.get('APIFY_API_TOKEN') or ''
 
 
 # Backward compat alias
@@ -444,18 +511,21 @@ def get_x_source_status(config: Dict[str, Any]) -> Dict[str, Any]:
 
     Returns:
         Dict with keys: source, bird_installed, bird_authenticated,
-        bird_username, xai_available, can_install_bird
+        bird_username, xai_available, apify_available, can_install_bird
     """
     from . import bird_x
 
     bird_status = bird_x.get_bird_status()
     xai_available = bool(config.get('XAI_API_KEY'))
+    apify_available = bool(config.get('APIFY_API_TOKEN'))
 
     # Determine active source
     if bird_status["authenticated"]:
         source = 'bird'
     elif xai_available:
         source = 'xai'
+    elif apify_available:
+        source = 'apify'
     else:
         source = None
 
@@ -465,5 +535,6 @@ def get_x_source_status(config: Dict[str, Any]) -> Dict[str, Any]:
         "bird_authenticated": bird_status["authenticated"],
         "bird_username": bird_status["username"],
         "xai_available": xai_available,
+        "apify_available": apify_available,
         "can_install_bird": bird_status["can_install"],
     }
