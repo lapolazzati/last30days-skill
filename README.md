@@ -1,6 +1,10 @@
-# /last30days v2.8
+# /last30days v2.9
 
 **The AI world reinvents itself every month. This skill keeps you current.** /last30days researches your topic across Reddit, X, YouTube, TikTok, Instagram, Hacker News, Polymarket, and the web from the last 30 days, finds what the community is actually upvoting, sharing, betting on, and saying on camera, and writes you a grounded narrative with real citations. Whether it's Seedance 2.0 access, paper.design prompts, or the latest Nano Banana Pro techniques, you'll know what people who are paying attention already know.
+
+**New in v2.9 — Apify: One API Key for Everything:**
+
+[Apify](https://apify.com) is now a unified API provider for Reddit, X, TikTok, and Instagram. One `APIFY_API_TOKEN` covers all four paid sources — no need to juggle separate OpenAI, xAI, and ScrapeCreators keys. Existing keys still work as before; Apify is an alternative, not a forced replacement. [Details below.](#whats-new-in-v29)
 
 **New in v2.8 — Instagram Reels + ScrapeCreators:**
 
@@ -31,8 +35,9 @@ git clone https://github.com/mvanhorn/last30days-skill.git ~/.claude/skills/last
 # Add your API keys (optional if signed in to Codex)
 mkdir -p ~/.config/last30days
 cat > ~/.config/last30days/.env << 'EOF'
-OPENAI_API_KEY=sk-...      # optional if using `codex login`
-XAI_API_KEY=xai-...        # optional - cookie auth is default for X search
+APIFY_API_TOKEN=apify_...  # optional - one key for Reddit, X, TikTok, Instagram (apify.com)
+OPENAI_API_KEY=sk-...      # optional if using `codex login` or Apify
+XAI_API_KEY=xai-...        # optional - cookie auth or Apify is default for X search
 SCRAPECREATORS_API_KEY=... # optional - for TikTok + Instagram (scrapecreators.com)
 EOF
 chmod 600 ~/.config/last30days/.env
@@ -883,13 +888,15 @@ This example shows /last30days discovering **emerging developer workflows** - re
 
 ## Requirements
 
-- **OpenAI API key** - For Reddit research (uses web search via Responses API)
-- **Node.js 22+** - For X search (bundled Twitter GraphQL client)
+- **Apify API token** (recommended) - One key covers Reddit, X, TikTok, and Instagram via [Apify](https://apify.com) actors
+- **OpenAI API key** (alternative for Reddit) - Uses web search via Responses API
+- **Node.js 22+** - For X search via bundled Twitter GraphQL client (Bird)
 - **X session** - Be logged into x.com in your browser, or set `AUTH_TOKEN`/`CT0` env vars
-- **xAI API key** (optional fallback) - If the bundled search can't authenticate, falls back to xAI's Grok API
+- **xAI API key** (optional fallback for X) - Falls back to xAI's Grok API if Bird and Apify aren't available
+- **ScrapeCreators API key** (alternative for TikTok + Instagram) - [scrapecreators.com](https://scrapecreators.com)
 - **yt-dlp** (optional) - For YouTube search + transcript extraction. Install via `brew install yt-dlp` or `pip install yt-dlp`. When present, automatically searches YouTube and extracts video transcripts as an additional source.
 
-At least one API key is required. X search works automatically if you're logged into x.com in your browser. YouTube search activates automatically when yt-dlp is in your PATH.
+At least one API key is required. The simplest setup is a single `APIFY_API_TOKEN` which covers Reddit, X, TikTok, and Instagram. X search also works automatically if you're logged into x.com in your browser. YouTube search activates automatically when yt-dlp is in your PATH.
 
 ## Troubleshooting
 
@@ -912,8 +919,8 @@ sudo "/Applications/Python 3.12/Install Certificates.command"
 ### Two-Phase Search Architecture
 
 **Phase 1: Broad discovery**
-- OpenAI Responses API with `web_search` tool scoped to reddit.com
-- Vendored Twitter GraphQL search (or xAI API fallback) for X search
+- Reddit via OpenAI Responses API or Apify (`automation-lab/reddit-scraper`)
+- X via vendored Twitter GraphQL search, xAI API, or Apify (`scraper_one/x-posts-search`)
 - YouTube search + transcript extraction via yt-dlp (when installed)
 - Hacker News search via Algolia API (free, no auth)
 - Polymarket prediction market search via Gamma API (free, no auth)
@@ -937,6 +944,31 @@ If your OpenAI org doesn't have access to a model (e.g., unverified for gpt-4.1)
 
 ---
 
+## What's New in v2.9
+
+### Apify as a unified API provider
+
+**One API key. Four sources.** Set `APIFY_API_TOKEN` and you get Reddit, X/Twitter, TikTok, and Instagram — no need for separate OpenAI, xAI, or ScrapeCreators keys.
+
+```bash
+echo 'APIFY_API_TOKEN=apify_api_...' >> ~/.config/last30days/.env
+```
+
+**How it works:** Apify runs cloud actors (scrapers) for each source. The skill calls them via the synchronous `run-sync-get-dataset-items` endpoint and normalizes the output to match the existing schema, so scoring, deduplication, and rendering work identically.
+
+| Source | Apify Actor | Fallback |
+|--------|-------------|----------|
+| Reddit | `automation-lab/reddit-scraper` | OpenAI Responses API |
+| X/Twitter | `scraper_one/x-posts-search` | Bird (cookies) → xAI API |
+| TikTok | `epctex/tiktok-search-scraper` | ScrapeCreators |
+| Instagram | `apify/instagram-reel-scraper` + `apify/instagram-hashtag-scraper` | ScrapeCreators |
+
+**Priority order:** Existing keys take priority. Apify is used as a fallback when a dedicated key isn't configured. For example, if you have both `XAI_API_KEY` and `APIFY_API_TOKEN`, X search uses xAI. If you only have `APIFY_API_TOKEN`, X search uses Apify.
+
+**Free sources are unchanged:** YouTube (yt-dlp), Hacker News (Algolia), and Polymarket (Gamma) remain free and require no API keys.
+
+---
+
 ## What's New in v2.8
 
 ### Instagram Reels as a source
@@ -956,7 +988,7 @@ Both TikTok and Instagram are powered by [ScrapeCreators](https://scrapecreators
 echo 'SCRAPECREATORS_API_KEY=your_key_here' >> ~/.config/last30days/.env
 ```
 
-**Migrating from Apify?** Replace `APIFY_API_TOKEN` with `SCRAPECREATORS_API_KEY` in your config. The old key is no longer used.
+**Have an Apify token?** As of v2.9, `APIFY_API_TOKEN` is a first-class option that covers TikTok, Instagram, Reddit, and X. You can use either `SCRAPECREATORS_API_KEY` or `APIFY_API_TOKEN` — ScrapeCreators takes priority when both are set.
 ---
 
 ## What's New in V2.5
@@ -1102,6 +1134,7 @@ Thanks to the contributors who helped shape V2:
 | `youtube.com` (via yt-dlp) | Search query | None (public search) |
 | `hn.algolia.com` | Search query | None (public API) |
 | `gamma-api.polymarket.com` | Search query | None (public API) |
+| `api.apify.com` | Search query (Reddit, X, TikTok, Instagram) | APIFY_API_TOKEN |
 | `api.scrapecreators.com` | Search query (TikTok + Instagram) | SCRAPECREATORS_API_KEY |
 | `api.search.brave.com` | Search query (optional) | BRAVE_API_KEY |
 | `api.parallel.ai` | Search query (optional) | PARALLEL_API_KEY |
@@ -1121,6 +1154,6 @@ Each API key is transmitted only to its respective endpoint. Your OpenAI key is 
 
 ---
 
-*30 days of research. 30 seconds of work. Eight sources. Zero stale prompts.*
+*30 days of research. 30 seconds of work. Eight sources. One API key. Zero stale prompts.*
 
 *Pair with [Open Claw](https://github.com/openclaw/openclaw) for automated watchlists and briefings. Reddit. X. YouTube. TikTok. Instagram. Web. — All synthesized into expert answers and copy-paste prompts.*
