@@ -1,6 +1,6 @@
 """Reddit search via Apify actor for /last30days.
 
-Uses the trudax/reddit-scraper actor to search Reddit by keyword.
+Uses the automation-lab/reddit-scraper actor to search Reddit by keyword.
 Requires APIFY_API_TOKEN in config.
 
 Provides the same interface as openai_reddit so the orchestrator
@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from . import apify_client, http
 
-ACTOR_ID = "trudax/reddit-scraper"
+ACTOR_ID = "automation-lab/reddit-scraper"
 
 # Depth configurations: how many results to request
 DEPTH_CONFIG = {
@@ -47,7 +47,7 @@ def search_reddit(
     depth: str = "default",
     token: str = None,
 ) -> Dict[str, Any]:
-    """Search Reddit via Apify trudax/reddit-scraper.
+    """Search Reddit via Apify automation-lab/reddit-scraper.
 
     Args:
         topic: Search topic

@@ -1,6 +1,6 @@
 """X/Twitter search via Apify actor for /last30days.
 
-Uses the apidojo/tweet-scraper actor to search X by keyword.
+Uses the scraper_one/x-posts-search actor to search X by keyword.
 Requires APIFY_API_TOKEN in config.
 
 Provides the same interface as xai_x so the orchestrator
@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from . import apify_client, http
 
-ACTOR_ID = "apidojo/tweet-scraper"
+ACTOR_ID = "scraper_one/x-posts-search"
 
 # Depth configurations
 DEPTH_CONFIG = {
@@ -61,7 +61,7 @@ def search_x(
     depth: str = "default",
     token: str = None,
 ) -> Dict[str, Any]:
-    """Search X/Twitter via Apify apidojo/tweet-scraper.
+    """Search X/Twitter via Apify scraper_one/x-posts-search.
 
     Args:
         topic: Search topic
