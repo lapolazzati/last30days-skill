@@ -115,6 +115,11 @@ class TestApifyCommonDateParsing(unittest.TestCase):
         result = apify_common.parse_date_from_keys(raw, ["date"])
         self.assertEqual(result, "2026-03-05")
 
+    def test_twitter_format(self):
+        raw = {"created_at": "Mon Mar 02 15:00:00 +0000 2026"}
+        result = apify_common.parse_date_from_keys(raw, ["created_at"])
+        self.assertEqual(result, "2026-03-02")
+
     def test_no_matching_key(self):
         raw = {"unrelated": "value"}
         result = apify_common.parse_date_from_keys(raw, ["createdAt", "date"])
@@ -153,6 +158,64 @@ class TestApifyCommonTimeout(unittest.TestCase):
 
     def test_deep(self):
         self.assertEqual(apify_common.timeout_for_depth("deep"), 240)
+
+
+class TestApifyCommonMakeLogger(unittest.TestCase):
+
+    def test_returns_callable(self):
+        log = apify_common.make_logger("Test")
+        self.assertTrue(callable(log))
+
+    def test_logger_writes_to_stderr(self):
+        import io
+        log = apify_common.make_logger("Test")
+        # When stderr is not a tty, logger is silent (no crash)
+        log("test message")  # should not raise
+
+
+class TestApifyCommonFilterByDateRange(unittest.TestCase):
+
+    def test_filters_out_of_range(self):
+        items = [
+            {"date": "2026-03-01", "id": 1},
+            {"date": "2026-02-15", "id": 2},
+            {"date": "2026-03-05", "id": 3},
+        ]
+        result = apify_common.filter_by_date_range(
+            items, "2026-03-01", "2026-03-09", lambda m: None)
+        self.assertEqual(len(result), 2)
+        self.assertEqual([r["id"] for r in result], [1, 3])
+
+    def test_keeps_all_when_none_in_range(self):
+        items = [
+            {"date": "2025-01-01", "id": 1},
+            {"date": "2025-01-02", "id": 2},
+        ]
+        result = apify_common.filter_by_date_range(
+            items, "2026-03-01", "2026-03-09", lambda m: None)
+        self.assertEqual(len(result), 2)
+
+    def test_skips_items_without_date(self):
+        items = [
+            {"date": None, "id": 1},
+            {"date": "2026-03-01", "id": 2},
+        ]
+        result = apify_common.filter_by_date_range(
+            items, "2026-03-01", "2026-03-09", lambda m: None)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], 2)
+
+
+class TestApifyCommonRelevancePreTokenized(unittest.TestCase):
+    """Test that pre-tokenized query produces same results."""
+
+    def test_same_result_with_pretokenized(self):
+        q = "claude code"
+        text = "Claude Code is amazing"
+        score_normal = apify_common.compute_relevance(q, text)
+        q_tokens = apify_common.tokenize(q)
+        score_pre = apify_common.compute_relevance(q, text, _q_tokens=q_tokens)
+        self.assertEqual(score_normal, score_pre)
 
 
 # ---------------------------------------------------------------------------

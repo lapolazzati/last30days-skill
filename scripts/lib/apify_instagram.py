@@ -8,18 +8,13 @@ orchestrator can swap between backends transparently.
 """
 
 import re
-import sys
 from typing import Any, Dict, List
 
 from . import apify_client, apify_common, http
 
 ACTOR_ID = "apify/instagram-reel-scraper"
 
-
-def _log(msg: str):
-    if sys.stderr.isatty():
-        sys.stderr.write(f"[Apify-Instagram] {msg}\n")
-        sys.stderr.flush()
+_log = apify_common.make_logger("Apify-Instagram")
 
 
 def _extract_hashtags(caption_text: str) -> List[str]:
@@ -73,11 +68,8 @@ def search_and_enrich(
             timeout=timeout,
             max_items=config["max_items"],
         )
-    except http.HTTPError as e:
-        _log(f"Apify error: {e}")
-        return {"items": [], "error": f"{type(e).__name__}: {e}"}
     except Exception as e:
-        _log(f"Unexpected error: {e}")
+        _log(f"Error: {e}")
         return {"items": [], "error": f"{type(e).__name__}: {e}"}
 
     items = _parse_items(raw_items, core_topic, from_date, to_date)
@@ -99,6 +91,7 @@ def _parse_items(
     to_date: str,
 ) -> List[Dict[str, Any]]:
     """Parse Apify Instagram items to normalized format."""
+    q_tokens = apify_common.tokenize(query)
     items = []
     for raw in raw_items:
         if not isinstance(raw, dict):
@@ -133,7 +126,7 @@ def _parse_items(
         duration = raw.get("videoDuration", raw.get("video_duration"))
         date_str = _parse_date(raw)
         hashtags = _extract_hashtags(text)
-        relevance = apify_common.compute_relevance(query, text, hashtags)
+        relevance = apify_common.compute_relevance(query, text, hashtags, _q_tokens=q_tokens)
 
         # URL
         url = raw.get("url", "")
@@ -160,19 +153,8 @@ def _parse_items(
             "caption_snippet": caption,
         })
 
-    # Hard date filter
-    in_range = [i for i in items if i["date"] and from_date <= i["date"] <= to_date]
-    out_of_range = len(items) - len(in_range)
-    if in_range:
-        items = in_range
-        if out_of_range:
-            _log(f"Filtered {out_of_range} reels outside date range")
-    else:
-        _log(f"No reels within date range, keeping all {len(items)}")
-
-    # Sort by views descending
+    items = apify_common.filter_by_date_range(items, from_date, to_date, _log, "reels")
     items.sort(key=lambda x: x["engagement"]["views"], reverse=True)
-
     return items
 
 
