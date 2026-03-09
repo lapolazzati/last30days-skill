@@ -1,20 +1,17 @@
 """X/Twitter search via Apify actor for /last30days.
 
-Uses the apidojo/tweet-scraper actor to search X by keyword.
+Uses the scraper_one/x-posts-search actor to search X by keyword.
 Requires APIFY_API_TOKEN in config.
 
 Provides the same interface as xai_x so the orchestrator
 can swap between backends transparently.
 """
 
-import re
-import sys
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from . import apify_client, http
+from . import apify_client, apify_common, http
 
-ACTOR_ID = "apidojo/tweet-scraper"
+ACTOR_ID = "scraper_one/x-posts-search"
 
 # Depth configurations
 DEPTH_CONFIG = {
@@ -23,35 +20,7 @@ DEPTH_CONFIG = {
     "deep":    {"max_items": 60},
 }
 
-
-def _log(msg: str):
-    if sys.stderr.isatty():
-        sys.stderr.write(f"[Apify-X] {msg}\n")
-        sys.stderr.flush()
-
-
-def _extract_core_subject(topic: str) -> str:
-    """Extract core subject from verbose query."""
-    text = topic.lower().strip()
-    prefixes = [
-        'what are the best', 'what is the best', 'what are the latest',
-        'what are people saying about', 'what do people think about',
-        'how do i use', 'how to use', 'how to',
-        'what are', 'what is', 'tips for', 'best practices for',
-    ]
-    for p in prefixes:
-        if text.startswith(p + ' '):
-            text = text[len(p):].strip()
-    noise = {
-        'best', 'top', 'good', 'great', 'awesome', 'killer',
-        'latest', 'new', 'news', 'update', 'updates',
-        'trending', 'hottest', 'popular', 'viral',
-        'practices', 'features', 'recommendations', 'advice',
-    }
-    words = text.split()
-    filtered = [w for w in words if w not in noise]
-    result = ' '.join(filtered) if filtered else text
-    return result.rstrip('?!.')
+_log = apify_common.make_logger("Apify-X")
 
 
 def search_x(
@@ -61,7 +30,7 @@ def search_x(
     depth: str = "default",
     token: str = None,
 ) -> Dict[str, Any]:
-    """Search X/Twitter via Apify apidojo/tweet-scraper.
+    """Search X/Twitter via Apify scraper_one/x-posts-search.
 
     Args:
         topic: Search topic
@@ -77,7 +46,7 @@ def search_x(
         return {"items": [], "error": "No APIFY_API_TOKEN configured"}
 
     config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
-    core_topic = _extract_core_subject(topic)
+    core_topic = apify_common.extract_core_subject(topic)
 
     _log(f"Searching X for '{core_topic}' (depth={depth})")
 
@@ -91,7 +60,7 @@ def search_x(
         "tweetLanguage": "en",
     }
 
-    timeout = 90 if depth == "quick" else 150 if depth == "default" else 240
+    timeout = apify_common.timeout_for_depth(depth)
 
     try:
         raw_items = apify_client.run_actor(
@@ -99,11 +68,8 @@ def search_x(
             timeout=timeout,
             max_items=config["max_items"],
         )
-    except http.HTTPError as e:
-        _log(f"Apify error: {e}")
-        return {"items": [], "error": f"{type(e).__name__}: {e}"}
     except Exception as e:
-        _log(f"Unexpected error: {e}")
+        _log(f"Error: {e}")
         return {"items": [], "error": f"{type(e).__name__}: {e}"}
 
     items = _parse_items(raw_items, core_topic, from_date, to_date)
@@ -111,32 +77,12 @@ def search_x(
     return {"items": items}
 
 
-def _parse_date(raw: Dict[str, Any]) -> Optional[str]:
+_DATE_KEYS = ("createdAt", "created_at", "date", "timestamp")
+
+
+def _parse_date(raw: Dict[str, Any]) -> str | None:
     """Extract date from Apify tweet item."""
-    for key in ("createdAt", "created_at", "date", "timestamp"):
-        val = raw.get(key)
-        if not val:
-            continue
-        if isinstance(val, str):
-            # ISO format or Twitter format
-            match = re.match(r'(\d{4}-\d{2}-\d{2})', val)
-            if match:
-                return match.group(1)
-            # Twitter format: "Thu Oct 10 12:00:00 +0000 2024"
-            try:
-                dt = datetime.strptime(val, "%a %b %d %H:%M:%S %z %Y")
-                return dt.strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-        try:
-            ts = float(val)
-            if ts > 1e12:
-                ts /= 1000
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-            return dt.strftime("%Y-%m-%d")
-        except (ValueError, TypeError, OSError):
-            continue
-    return None
+    return apify_common.parse_date_from_keys(raw, _DATE_KEYS)
 
 
 def _parse_items(
@@ -203,17 +149,7 @@ def _parse_items(
             "relevance": relevance,
         })
 
-    # Hard date filter
-    in_range = [item for item in items if item["date"] and from_date <= item["date"] <= to_date]
-    out_of_range = len(items) - len(in_range)
-    if in_range:
-        items = in_range
-        if out_of_range:
-            _log(f"Filtered {out_of_range} posts outside date range")
-    else:
-        _log(f"No posts within date range, keeping all {len(items)}")
-
-    return items
+    return apify_common.filter_by_date_range(items, from_date, to_date, _log, "posts")
 
 
 def parse_x_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:

@@ -1,20 +1,17 @@
 """Reddit search via Apify actor for /last30days.
 
-Uses the trudax/reddit-scraper actor to search Reddit by keyword.
+Uses the automation-lab/reddit-scraper actor to search Reddit by keyword.
 Requires APIFY_API_TOKEN in config.
 
 Provides the same interface as openai_reddit so the orchestrator
 can swap between backends transparently.
 """
 
-import re
-import sys
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from . import apify_client, http
+from . import apify_client, apify_common, http
 
-ACTOR_ID = "trudax/reddit-scraper"
+ACTOR_ID = "automation-lab/reddit-scraper"
 
 # Depth configurations: how many results to request
 DEPTH_CONFIG = {
@@ -23,18 +20,18 @@ DEPTH_CONFIG = {
     "deep":    {"max_items": 100},
 }
 
-
-def _log(msg: str):
-    if sys.stderr.isatty():
-        sys.stderr.write(f"[Apify-Reddit] {msg}\n")
-        sys.stderr.flush()
+_log = apify_common.make_logger("Apify-Reddit")
 
 
 def _extract_core_subject(topic: str) -> str:
-    """Extract core subject from verbose query."""
-    noise = ['best', 'top', 'how to', 'tips for', 'practices', 'features',
+    """Extract core subject — Reddit-specific, simpler than the common version.
+
+    Keeps only content words (up to 5) without prefix stripping,
+    which works better for Reddit's search API.
+    """
+    noise = {'best', 'top', 'how', 'to', 'tips', 'for', 'practices', 'features',
              'killer', 'guide', 'tutorial', 'recommendations', 'advice',
-             'prompting', 'using', 'for', 'with', 'the', 'of', 'in', 'on']
+             'prompting', 'using', 'with', 'the', 'of', 'in', 'on'}
     words = topic.lower().split()
     result = [w for w in words if w not in noise]
     return ' '.join(result[:5]) or topic
@@ -47,7 +44,7 @@ def search_reddit(
     depth: str = "default",
     token: str = None,
 ) -> Dict[str, Any]:
-    """Search Reddit via Apify trudax/reddit-scraper.
+    """Search Reddit via Apify automation-lab/reddit-scraper.
 
     Args:
         topic: Search topic
@@ -79,7 +76,7 @@ def search_reddit(
         "includeNSFW": False,
     }
 
-    timeout = 90 if depth == "quick" else 150 if depth == "default" else 240
+    timeout = apify_common.timeout_for_depth(depth)
 
     try:
         raw_items = apify_client.run_actor(
@@ -87,11 +84,8 @@ def search_reddit(
             timeout=timeout,
             max_items=config["max_items"],
         )
-    except http.HTTPError as e:
-        _log(f"Apify error: {e}")
-        return {"items": [], "error": f"{type(e).__name__}: {e}"}
     except Exception as e:
-        _log(f"Unexpected error: {e}")
+        _log(f"Error: {e}")
         return {"items": [], "error": f"{type(e).__name__}: {e}"}
 
     items = _parse_items(raw_items, core_topic, from_date, to_date)
@@ -99,28 +93,12 @@ def search_reddit(
     return {"items": items}
 
 
+_DATE_KEYS = ("createdAt", "created_utc", "created", "date")
+
+
 def _parse_date(raw: Dict[str, Any]) -> Optional[str]:
     """Extract date from Apify Reddit item."""
-    # Try created_utc / createdAt / created
-    for key in ("createdAt", "created_utc", "created", "date"):
-        val = raw.get(key)
-        if not val:
-            continue
-        # ISO string
-        if isinstance(val, str):
-            match = re.match(r'(\d{4}-\d{2}-\d{2})', val)
-            if match:
-                return match.group(1)
-        # Unix timestamp
-        try:
-            ts = float(val)
-            if ts > 1e12:
-                ts /= 1000  # milliseconds
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-            return dt.strftime("%Y-%m-%d")
-        except (ValueError, TypeError, OSError):
-            continue
-    return None
+    return apify_common.parse_date_from_keys(raw, _DATE_KEYS)
 
 
 def _parse_items(
@@ -177,17 +155,7 @@ def _parse_items(
             "relevance": relevance,
         })
 
-    # Hard date filter
-    in_range = [item for item in items if item["date"] and from_date <= item["date"] <= to_date]
-    out_of_range = len(items) - len(in_range)
-    if in_range:
-        items = in_range
-        if out_of_range:
-            _log(f"Filtered {out_of_range} posts outside date range")
-    else:
-        _log(f"No posts within date range, keeping all {len(items)}")
-
-    return items
+    return apify_common.filter_by_date_range(items, from_date, to_date, _log, "posts")
 
 
 def parse_reddit_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:

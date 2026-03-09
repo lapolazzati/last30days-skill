@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-03-09
+
+### Highlights
+
+Apify as unified API provider — one `APIFY_API_TOKEN` now covers Reddit, X, TikTok, and Instagram. Existing keys (OpenAI, xAI, ScrapeCreators) remain as alternatives.
+
+### Added
+
+- Apify client module (`scripts/lib/apify_client.py`) — shared runner for synchronous actor execution
+- Apify Reddit backend (`scripts/lib/apify_reddit.py`) via `automation-lab/reddit-scraper` actor
+- Apify X/Twitter backend (`scripts/lib/apify_x.py`) via `scraper_one/x-posts-search` actor
+- Apify TikTok backend (`scripts/lib/apify_tiktok.py`) via `epctex/tiktok-search-scraper` actor
+- Apify Instagram backend (`scripts/lib/apify_instagram.py`) via `apify/instagram-reel-scraper` actor
+- Shared text processing utilities (`scripts/lib/apify_common.py`) — tokenization, relevance scoring, date parsing
+- Tests for all Apify modules (`tests/test_apify_client.py`, `tests/test_apify_social.py`)
+
+### Changed
+
+- `APIFY_API_TOKEN` is now a first-class config option covering all four social sources
+- ScrapeCreators takes priority when both `SCRAPECREATORS_API_KEY` and `APIFY_API_TOKEN` are set
+
 ## [2.8.0] - 2026-03-04
 
 ### Highlights
@@ -88,6 +109,7 @@ Three headline features: watchlists for always-on bots, YouTube transcripts as a
 
 Initial public release. Reddit + X search via OpenAI Responses API and xAI API.
 
+[2.9.0]: https://github.com/mvanhorn/last30days-skill/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/mvanhorn/last30days-skill/compare/v2.6.0...v2.8.0
 [2.1.0]: https://github.com/mvanhorn/last30days-skill/compare/v1.0.0...v2.1.0
 [1.0.0]: https://github.com/mvanhorn/last30days-skill/releases/tag/v1.0.0

@@ -36,7 +36,7 @@ def run_actor(
     waits for it to finish, and returns the dataset items in one call.
 
     Args:
-        actor_id: Actor ID (e.g. 'trudax/reddit-scraper')
+        actor_id: Actor ID (e.g. 'automation-lab/reddit-scraper')
         run_input: Actor input as a dict
         token: Apify API token
         timeout: HTTP timeout in seconds (actor must finish within 300s)
